@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - cai-v1.0.5
+      - cai-1.1.5-release
   pull_request:
     branches:
       - main
+      - cai-1.1.5-release
   workflow_dispatch:
 
 env:
@@ -75,6 +77,23 @@ jobs:
         run: make sync
       - name: Run selection agent smoke tests
         run: uv run pytest tests/agents/test_selection_agent_smoke.py -q --timeout=600
+
+  # Phoenix/OTLInference exporter regression (optional `phoenix` extra + in-memory OTel SDK).
+  phoenix-exporter:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: fake-for-tests
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies (all extras incl. phoenix)
+        run: make sync
+      - name: Run OpenInference/OTLP exporter tests
+        run: uv run pytest tests/others/test_phoenix_exporter.py -q --timeout=300
 
   build-docs:
     runs-on: ubuntu-latest
