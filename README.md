@@ -726,6 +726,40 @@ During the agentic flow (conversation), we distinguish between **interactions** 
 CAI implements AI observability by adopting the OpenTelemetry standard and to do so, it leverages [Phoenix](https://github.com/Arize-ai/phoenix) which provides comprehensive tracing capabilities through OpenTelemetry-based instrumentation, allowing you to monitor and analyze your security operations in real-time. This integration enables detailed visibility into agent interactions, tool usage, and attack vectors throughout penetration testing workflows, making it easier to debug complex exploitation chains, track vulnerability discovery processes, and optimize agent performance for more effective security assessments.
 
 ![](media/tracing.png)
+![](media/tracing.png)
+
+#### Exporting spans to a self-hosted Arize Phoenix collector
+
+CAI's tracing pipeline now ships with an `agent→LLM→tool` OpenInference exporter that can POST spans
+to any OpenTelemetry collector. To point CAI at a self-hosted [Arize Phoenix](https://github.com/Arize-ai/phoenix)
+(OTLP) collector, set the env vars below and CAI swaps its default OpenAI `BackendSpanExporter` for a
+Phoenix `OpenInference` exporter at tracing init:
+
+| Env var | Description |
+|---|---|
+| `CAI_TRACING` | `true` to enable OpenTelemetry tracing (default `true`). |
+| `CAI_PHOENIX_TRACING` | Keep tracing ON for CLI/worker runs even though CAI disables it by default. Set `true` with a Phoenix collector. |
+| `PHOENIX_OTLP_ENDPOINT` | The in-cluster/LAN OTLP endpoint. **Use gRPC** (Phoenix serves OTLP gRPC on `4317`; its HTTP `4318` is not listening by default): e.g. `phoenix.tools.svc:4317` (in-cluster) or `http://<host>:4317`. |
+
+```bash
+# example (in-cluster Phoenix, gRPC)
+export CAI_TRACING=true
+export CAI_PHOENIX_TRACING=true
+export PHOENIX_OTLP_ENDPOINT="phoenix.tools.svc:4317"
+# run an agent
+cai --interactive
+```
+
+After a run, the Phoenix GUI shows a trace with `agent → LLM → tool` spans including the input/output
+messages and token counts. The exporter (`cai.sdk.agents.tracing.phoenix_exporter.CAIPhoenixOtelExporter`)
+maps CAI `agent`/`function`/`generation` span data to OpenInference semantic conventions and forwards via
+`opentelemetry-exporter-otlp-proto-grpc` (insecure, for LAN/in-cluster). Span IDs are `sha256`-derived so
+parent/child nesting is preserved across batches.
+
+> **No more 401-to-OpenAI:** the old default POSTed traces to `https://api.openai.com/v1/traces/ingest`,
+> which 401'd with a non-OpenAI key. Setting `PHOENIX_OTLP_ENDPOINT` replaces that exporter so spans go
+> to your collector instead.
+
 
 ### 🔹 Guardrails
 
@@ -823,6 +857,8 @@ For using private models, you are given a [`.env.example`](.env.example) file. C
 | CAI_BRIEF | Enable/disable brief output mode |
 | CAI_MAX_TURNS | Maximum number of turns for agent interactions |
 | CAI_TRACING | Enable/disable OpenTelemetry tracing |
+| CAI_PHOENIX_TRACING | Keep OpenTelemetry tracing ON for CLI/worker runs (default off; set `true` with a Phoenix collector) |
+| PHOENIX_OTLP_ENDPOINT | OTLP gRPC endpoint for a Phoenix collector (e.g. `phoenix.tools.svc:4317`). Set it to replace the OpenAI backend exporter |
 | CAI_AGENT_TYPE | Specify the agents to use (boot2root, one_tool...) |
 | CAI_STATE | Enable/disable stateful mode |
 | CAI_MEMORY | Enable/disable memory mode (episodic, semantic, all) |
@@ -1119,6 +1155,8 @@ See the [CLI commands reference](docs/cli/commands_reference.md) for the full co
  How can I trace the whole execution? 
 The environment variable `CAI_TRACING` allows the user to set it to `CAI_TRACING=true` to enable tracing, or `CAI_TRACING=false` to disable it.
 When CAI is prompted by the first time, the user is provided with two paths, the execution log, and the tracing log.
+
+To export traces to a self-hosted Phoenix collector, set `CAI_TRACING=true` (default), `CAI_PHOENIX_TRACING=true`, and `PHOENIX_OTLP_ENDPOINT=<grpc-endpoint>` (e.g. `phoenix.tools.svc:4317`). CAI then replaces its OpenAI `BackendSpanExporter` with the Phoenix OpenInference exporter.
 
 ![cai-009-logs](imgs/readme_imgs/cai-009-logs.png)
 

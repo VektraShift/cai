@@ -111,6 +111,12 @@ def set_tracing_export_api_key(api_key: str) -> None:
 # 2. calling set_trace_processors(), which replaces the default processor.
 # Only start the tracing processor if CAI_TRACING is not explicitly disabled
 if os.getenv("CAI_TRACING", "true").lower() != "false":
-    add_trace_processor(default_processor())
+    if os.getenv("PHOENIX_OTLP_ENDPOINT"):
+        # Phoenix/OTLP: replace the OpenAI backend exporter with the Phoenix OpenInference exporter.
+        from .phoenix_exporter import init_phoenix_exporter
+
+        init_phoenix_exporter()
+    else:
+        add_trace_processor(default_processor())
 
 atexit.register(GLOBAL_TRACE_PROVIDER.shutdown)
