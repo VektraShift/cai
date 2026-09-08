@@ -609,7 +609,9 @@ def run_cai_cli(
     from cai.util.cli_session_clock import reset_session_clock
 
     reset_session_clock()
-    set_tracing_disabled(True)
+    # Phoenix/OTLP: keep tracing enabled when CAI_PHOENIX_TRACING=1 so spans reach the collector.
+    if not os.environ.get("CAI_PHOENIX_TRACING"):
+        set_tracing_disabled(True)
 
     if console is None:
         console = Console()

@@ -71,6 +71,12 @@ mail = ["dnspython"]
 pdf = ["PyPDF2"]
 web = ["flask"]
 telemetry = ["openinference-instrumentation-openai>=0.1.22"]
+phoenix = [
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-grpc",
+    "openinference-semantic-conventions",
+]
 test = [
     "pytest",
     "pytest-asyncio",
@@ -80,7 +86,7 @@ test = [
     "graphviz>=0.17",
 ]
 all = [
-    "cai-framework[viz,data,tui,docs,mail,pdf,web,telemetry,test]",
+    "cai-framework[viz,data,tui,docs,mail,pdf,web,telemetry,test,phoenix]",
 ]
 
 [dependency-groups]

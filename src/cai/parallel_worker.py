@@ -49,9 +49,10 @@ def _parse_args() -> WorkerArgs:
 async def _run(args: WorkerArgs) -> dict:
     os.environ["CAI_STREAM"] = "true"
     os.environ["CAI_TOOL_STREAM"] = "true"
-    # Avoid non-fatal tracing noise in detached worker terminals (e.g. OPENAI_API_KEY placeholder).
-    os.environ["CAI_TRACING"] = "false"
-    set_tracing_disabled(True)
+    # Phoenix/OTLP: keep tracing enabled for workers when requested, so spans land in the collector.
+    if not os.environ.get("CAI_PHOENIX_TRACING"):
+        os.environ["CAI_TRACING"] = "false"
+        set_tracing_disabled(True)
     boot = os.environ.get("CAI_PARALLEL_MCP_BOOTSTRAP", "").strip()
     if boot and os.path.isfile(boot):
         try:

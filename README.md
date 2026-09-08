@@ -726,6 +726,47 @@ During the agentic flow (conversation), we distinguish between **interactions** 
 CAI implements AI observability by adopting the OpenTelemetry standard and to do so, it leverages [Phoenix](https://github.com/Arize-ai/phoenix) which provides comprehensive tracing capabilities through OpenTelemetry-based instrumentation, allowing you to monitor and analyze your security operations in real-time. This integration enables detailed visibility into agent interactions, tool usage, and attack vectors throughout penetration testing workflows, making it easier to debug complex exploitation chains, track vulnerability discovery processes, and optimize agent performance for more effective security assessments.
 
 ![](media/tracing.png)
+![](media/tracing.png)
+
+#### Exporting spans to a self-hosted Arize Phoenix collector
+
+CAI's tracing pipeline now ships with an `agent→LLM→tool` OpenInference exporter that can POST spans
+to any OpenTelemetry collector. To point CAI at a self-hosted [Arize Phoenix](https://github.com/Arize-ai/phoenix)
+(OTLP) collector, install the optional extra and set the env vars below. CAI then swaps its default
+OpenAI `BackendSpanExporter` for a Phoenix `OpenInference` exporter at tracing init:
+
+```bash
+pip install '.[phoenix]'    # optional: OTel + OpenInference deps (not installed by default)
+```
+
+> Without `CAI_PHOENIX_TRACING` set, the default OpenAI backend exporter and the original
+> `set_tracing_disabled(True)` behavior are unchanged — this is strictly opt-in.
+
+| Env var | Description |
+|---|---|
+| `CAI_TRACING` | `true` to enable OpenTelemetry tracing (default `true`). |
+| `CAI_PHOENIX_TRACING` | Toggle to export to Phoenix (replaces the OpenAI exporter). When set truthy, `PHOENIX_OTLP_ENDPOINT` **must** also be set (missing endpoint raises an error). |
+| `PHOENIX_OTLP_ENDPOINT` | The OTLP gRPC endpoint of the Phoenix collector (Phoenix serves OTLP gRPC on `4317`; HTTP `4318` not listening). Required when `CAI_PHOENIX_TRACING` is set, e.g. `phoenix.tools.svc:4317`. |
+
+```bash
+# example (in-cluster Phoenix, gRPC)
+export CAI_TRACING=true
+export CAI_PHOENIX_TRACING=true
+export PHOENIX_OTLP_ENDPOINT="phoenix.tools.svc:4317"
+# run an agent
+cai --interactive
+```
+
+After a run, the Phoenix GUI shows a trace with `agent → LLM → tool` spans including the input/output
+messages and token counts. The exporter (`cai.sdk.agents.tracing.phoenix_exporter.CAIPhoenixOtelExporter`)
+maps CAI `agent`/`function`/`generation` span data to OpenInference semantic conventions and forwards via
+`opentelemetry-exporter-otlp-proto-grpc` (insecure, for LAN/in-cluster). Span IDs are `sha256`-derived so
+parent/child nesting is preserved across batches.
+
+> **No more 401-to-OpenAI:** the old default POSTed traces to `https://api.openai.com/v1/traces/ingest`,
+> which 401'd with a non-OpenAI key. Setting `PHOENIX_OTLP_ENDPOINT` replaces that exporter so spans go
+> to your collector instead.
+
 
 ### 🔹 Guardrails
 
@@ -823,6 +864,8 @@ For using private models, you are given a [`.env.example`](.env.example) file. C
 | CAI_BRIEF | Enable/disable brief output mode |
 | CAI_MAX_TURNS | Maximum number of turns for agent interactions |
 | CAI_TRACING | Enable/disable OpenTelemetry tracing |
+| CAI_PHOENIX_TRACING | Keep OpenTelemetry tracing ON for CLI/worker runs (default off; set `true` with a Phoenix collector) |
+| PHOENIX_OTLP_ENDPOINT | OTLP gRPC endpoint for a Phoenix collector (e.g. `phoenix.tools.svc:4317`). Set it to replace the OpenAI backend exporter |
 | CAI_AGENT_TYPE | Specify the agents to use (boot2root, one_tool...) |
 | CAI_STATE | Enable/disable stateful mode |
 | CAI_MEMORY | Enable/disable memory mode (episodic, semantic, all) |
@@ -1120,6 +1163,8 @@ See the [CLI commands reference](docs/cli/commands_reference.md) for the full co
 The environment variable `CAI_TRACING` allows the user to set it to `CAI_TRACING=true` to enable tracing, or `CAI_TRACING=false` to disable it.
 When CAI is prompted by the first time, the user is provided with two paths, the execution log, and the tracing log.
 
+To export traces to a self-hosted Phoenix collector, `pip install '.[phoenix]'` then set `CAI_TRACING=true` (default), `CAI_PHOENIX_TRACING=true`, and `PHOENIX_OTLP_ENDPOINT=<grpc-endpoint>` (e.g. `phoenix.tools.svc:4317`). CAI then replaces its OpenAI `BackendSpanExporter` with the Phoenix OpenInference exporter; a missing endpoint while `CAI_PHOENIX_TRACING` is set raises an error.
+
 ![cai-009-logs](imgs/readme_imgs/cai-009-logs.png)
 
  
@@ -1242,3 +1287,201 @@ CAI benefits from ongoing research collaborations with academic institutions. Re
 [^2]: Kamhoua, C. A., Leslie, N. O., & Weisman, M. J. (2018). Game theoretic modeling of advanced persistent threat in internet of things. Journal of Cyber Security and Information Systems.
 [^3]: Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023, January). React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR).
 [^4]: Deng, G., Liu, Y., Mayoral-Vilches, V., Liu, P., Li, Y., Xu, Y., ... & Rass, S. (2024). {PentestGPT}: Evaluating and harnessing large language models for automated penetration testing. In 33rd USENIX Security Symposium (USENIX Security 24) (pp. 847-864).
+
+
+## :anchor: Kubernetes deployment (Flux + app-template)
+
+CAI is packaged as a HelmRelease on the `bjw-s` [`app-template`](https://github.com/bjw-s/helm-charts)
+chart (4.6.x). The compiled image is published at
+**[`vektrashift/cai`](https://hub.docker.com/r/vektrashift/cai)** (CHANGE `vektrashift` to your Docker Hub owner/registry) — the Phoenix-tracing build is
+tagged **`v1.1.5-otel`**:
+
+```
+docker pull vektrashift/cai:v1.1.5-otel   # CHANGE `<vektrashift>` to your registry owner
+```
+
+#### Build the image (from the CAI repo root, where `Dockerfile` lives)
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -t vektrashift/cai:v1.1.5-otel \
+  -f Dockerfile \
+  --push .
+```
+> `--platform linux/amd64` is required when building on an Apple Silicon (arm64) host so the image
+> targets the cluster's amd64 nodes. `--push` publishes it to your registry. Change `vektrashift`
+> to your Docker Hub/registry owner.
+
+### 1) Phoenix collector (OTLP + GUI)
+
+Deploy Arize Phoenix in the same namespace so CAI can export spans to it. Phoenix serves the UI on
+`6006` and OTLP over **gRPC on `4317`** (its HTTP `4318` is not listening by default).
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: phoenix
+  namespace: tools
+spec:
+  interval: 5m
+  releaseName: phoenix
+  chart:
+    spec:
+      chart: app-template
+      version: 4.6.2
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  values:
+    fullnameOverride: "phoenix"
+    controllers:
+      phoenix:
+        containers:
+          app:
+            image:
+              repository: arizephoenix/phoenix
+              tag: "0.6.6"                # pin a version; -nonroot variant available
+              pullPolicy: Always
+            env:
+              TZ: "Europe/Paris"
+              PHOENIX_TELEMETRY_ENABLED: "false"   # no Phoenix outbound telemetry
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 3
+                  tcpSocket: { port: 6006 }
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  failureThreshold: 3
+                  tcpSocket: { port: 6006 }
+    service:
+      app:
+        controller: phoenix
+        type: ClusterIP
+        ports:
+          ui:        { port: 6006, targetPort: 6006 }
+          otlp-grpc: { port: 4317, targetPort: 4317 }
+          otlp-http: { port: 4318, targetPort: 4318 }   # advertised; Phoenix binds gRPC 4317
+    ingress:
+      app: { enabled: false }
+    persistence:
+      config:
+        enabled: true
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        storageClass: longhorn
+        globalMounts:
+          - path: /data
+```
+
+### 2) CAI pod (with Phoenix OTel tracing)
+
+The `cai` `HelmRelease` points at the compiled image, sets the model endpoint, and enables trace
+export to the Phoenix Service (`phoenix.tools.svc:4317`, gRPC). The `cai-secret` (SOPS) provides the
+model API key (`ALIAS_API_KEY`).
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cai
+  namespace: tools
+spec:
+  interval: 5m
+  releaseName: cai
+  chart:
+    spec:
+      chart: app-template
+      version: 4.6.2
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  values:
+    # imagePullSecrets:
+    #   - name: regcred        # add if the image registry is private
+    fullnameOverride: "cai"
+    controllers:
+      cai:
+        pod:
+          labels:
+            app.kubernetes.io/name: cai
+            version: green
+        containers:
+          app:
+            image:
+              repository: vektrashift/cai   # CHANGE to your Docker Hub owner
+              tag: v1.1.5-otel          # Phoenix-tracing build (see image link above)
+              pullPolicy: Always
+            resources:
+              requests:
+                memory: 2Gi
+              limits:
+                memory: 3Gi             # agent runs are heavy; avoid OOM (exit 137)
+            command: [cai]
+            args: ["--api", "--api-host", "0.0.0.0", "--api-port", "8080"]
+            env:
+              TZ: "Europe/Paris"
+              CAI_LICENSE_OFF: "1"
+              # Model: CAI's ollama_cloud/ path = a direct AsyncOpenAI client against an
+              # OpenAI-compatible /v1 endpoint. CAI appends /v1 to OLLAMA_API_BASE.
+              CAI_MODEL: ollama_cloud/Llama-3-WhiteRabbitNeo-8B-v2.0.Q8_0
+              OLLAMA_API_BASE: http://192.168.1.157:8080
+              OPENAI_BASE_URL: http://192.168.1.157:8080/v1
+              OPENAI_API_BASE: http://192.168.1.157:8080/v1
+              CAI_FETCH_ALLOW_INTERNAL: "true"
+              # OpenTelemetry -> Phoenix (OTLP gRPC). Replaces the OpenAI BackendSpanExporter,
+              # so no 401-to-OpenAI and traces reach the in-cluster collector.
+              CAI_TRACING: "true"
+              CAI_PHOENIX_TRACING: "true"
+              PHOENIX_OTLP_ENDPOINT: phoenix.tools.svc:4317
+            envFrom:
+              - secretRef: { name: cai-secret }   # SOPS: ALIAS_API_KEY / OPENAI_API_KEY
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+                  failureThreshold: 5
+                  httpGet: { path: /api/v1/health, port: 8080 }
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  failureThreshold: 5
+                  httpGet: { path: /api/v1/health, port: 8080 }
+    service:
+      app:
+        controller: cai
+        type: ClusterIP
+        ports:
+          http: { port: 8080, targetPort: 8080 }
+    ingress:
+      app:
+        enabled: false              # expose via your own IngressRoute (LAN-only)
+    persistence:
+      config:
+        enabled: true
+        type: emptyDir              # CAI config/memory; ephemeral by default
+```
+
+> **Note on the service name:** with `fullnameOverride: phoenix`, the app-template `service.app`
+> renders the Service as **`phoenix`** (not `phoenix-app`), so CAI's `PHOENIX_OTLP_ENDPOINT` is
+> `phoenix.tools.svc:4317`. The `-blue`/`-green` Services come from the canary stack and only carry
+> the UI port (6006).
+

@@ -5,42 +5,48 @@ on:
     branches:
       - main
       - cai-v1.0.5
+      - cai-1.1.5-release
   pull_request:
     branches:
       - main
-  workflow_dispatch:
-
+      - cai-1.1.5-release
+  #workflow_dispatch:
+  
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
 env:
   UV_FROZEN: "1"
 
 jobs:
-  # lint:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #     - name: Setup uv
-  #       uses: astral-sh/setup-uv@v5
-  #       with:
-  #         enable-cache: true
-  #     - name: Install dependencies
-  #       run: make sync
-  #     - name: Run lint
-  #       run: make lint
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: make sync
+      - name: Run lint (PR files; legacy codebase has pre-existing E501s so it cannot pass repo-wide)
+        run: uv run ruff check src/cai/sdk/agents/tracing/phoenix_exporter.py tests/others/test_phoenix_exporter.py
 
-  # typecheck:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #     - name: Setup uv
-  #       uses: astral-sh/setup-uv@v5
-  #       with:
-  #         enable-cache: true
-  #     - name: Install dependencies
-  #       run: make sync
-  #     - name: Run typecheck
-  #       run: make mypy
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: make sync
+      - name: Run typecheck (PR files)
+        run: uv run mypy src/cai/sdk/agents/tracing/phoenix_exporter.py tests/others/test_phoenix_exporter.py
 
   # Lightweight prompt / layering checks (no refusals suite; mirrors GitLab smoke slice)
   cyber-prompt-smoke:
@@ -49,9 +55,9 @@ jobs:
       OPENAI_API_KEY: fake-for-tests
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - name: Install dependencies
@@ -66,9 +72,9 @@ jobs:
       OPENAI_API_KEY: fake-for-tests
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - name: Install dependencies
@@ -76,15 +82,32 @@ jobs:
       - name: Run selection agent smoke tests
         run: uv run pytest tests/agents/test_selection_agent_smoke.py -q --timeout=600
 
+  # Phoenix/OTLInference exporter regression (optional `phoenix` extra + in-memory OTel SDK).
+  phoenix-exporter:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: fake-for-tests
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies (all extras incl. phoenix)
+        run: make sync
+      - name: Run OpenInference/OTLP exporter tests
+        run: uv run pytest tests/others/test_phoenix_exporter.py -q --timeout=300
+
   build-docs:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: fake-for-tests
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - name: Install dependencies
@@ -98,9 +121,9 @@ jobs:
   #     OPENAI_API_KEY: fake-for-tests
   #   steps:
   #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v5
   #     - name: Setup uv
-  #       uses: astral-sh/setup-uv@v5
+  #       uses: astral-sh/setup-uv@v6
   #       with:
   #         enable-cache: true
   #     - name: Install dependencies
