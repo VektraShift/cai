@@ -1286,11 +1286,11 @@ CAI benefits from ongoing research collaborations with academic institutions. Re
 
 CAI is packaged as a HelmRelease on the `bjw-s` [`app-template`](https://github.com/bjw-s/helm-charts)
 chart (4.6.x). The compiled image is published at
-**[`zipeldiablo/cai`](https://hub.docker.com/r/zipeldiablo/cai)** — the Phoenix-tracing build is
+**[`vektrashift/cai`](https://hub.docker.com/r/vektrashift/cai)** (CHANGE `vektrashift` to your Docker Hub owner/registry) — the Phoenix-tracing build is
 tagged **`v1.1.5-otel`**:
 
 ```
-docker pull zipeldiablo/cai:v1.1.5-otel
+docker pull vektrashift/cai:v1.1.5-otel   # CHANGE `<vektrashift>` to your registry owner
 ```
 
 ### 1) Phoenix collector (OTLP + GUI)
@@ -1402,7 +1402,7 @@ spec:
         containers:
           app:
             image:
-              repository: zipeldiablo/cai
+              repository: vektrashift/cai   # CHANGE to your Docker Hub owner
               tag: v1.1.5-otel          # Phoenix-tracing build (see image link above)
               pullPolicy: Always
             resources:

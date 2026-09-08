@@ -4,7 +4,8 @@
 # are regular pyproject dependencies, so no build-time tracing patch is required.
 #
 # Build (from repo root):
-#   docker buildx build --platform linux/amd64 -t zipeldiablo/cai:v1.1.5-otel \
+#   # CHANGE `vektrashift` to your Docker Hub owner
+#   docker buildx build --platform linux/amd64 -t vektrashift/cai:v1.1.5-otel \
 #     -f Dockerfile --push .
 
 # ---- Build stage ----
