@@ -732,14 +732,21 @@ CAI implements AI observability by adopting the OpenTelemetry standard and to do
 
 CAI's tracing pipeline now ships with an `agent→LLM→tool` OpenInference exporter that can POST spans
 to any OpenTelemetry collector. To point CAI at a self-hosted [Arize Phoenix](https://github.com/Arize-ai/phoenix)
-(OTLP) collector, set the env vars below and CAI swaps its default OpenAI `BackendSpanExporter` for a
-Phoenix `OpenInference` exporter at tracing init:
+(OTLP) collector, install the optional extra and set the env vars below. CAI then swaps its default
+OpenAI `BackendSpanExporter` for a Phoenix `OpenInference` exporter at tracing init:
+
+```bash
+pip install '.[phoenix]'    # optional: OTel + OpenInference deps (not installed by default)
+```
+
+> Without `CAI_PHOENIX_TRACING` set, the default OpenAI backend exporter and the original
+> `set_tracing_disabled(True)` behavior are unchanged — this is strictly opt-in.
 
 | Env var | Description |
 |---|---|
 | `CAI_TRACING` | `true` to enable OpenTelemetry tracing (default `true`). |
-| `CAI_PHOENIX_TRACING` | Keep tracing ON for CLI/worker runs even though CAI disables it by default. Set `true` with a Phoenix collector. |
-| `PHOENIX_OTLP_ENDPOINT` | The in-cluster/LAN OTLP endpoint. **Use gRPC** (Phoenix serves OTLP gRPC on `4317`; its HTTP `4318` is not listening by default): e.g. `phoenix.tools.svc:4317` (in-cluster) or `http://<host>:4317`. |
+| `CAI_PHOENIX_TRACING` | Toggle to export to Phoenix (replaces the OpenAI exporter). When set truthy, `PHOENIX_OTLP_ENDPOINT` **must** also be set (missing endpoint raises an error). |
+| `PHOENIX_OTLP_ENDPOINT` | The OTLP gRPC endpoint of the Phoenix collector (Phoenix serves OTLP gRPC on `4317`; HTTP `4318` not listening). Required when `CAI_PHOENIX_TRACING` is set, e.g. `phoenix.tools.svc:4317`. |
 
 ```bash
 # example (in-cluster Phoenix, gRPC)
@@ -1156,7 +1163,7 @@ See the [CLI commands reference](docs/cli/commands_reference.md) for the full co
 The environment variable `CAI_TRACING` allows the user to set it to `CAI_TRACING=true` to enable tracing, or `CAI_TRACING=false` to disable it.
 When CAI is prompted by the first time, the user is provided with two paths, the execution log, and the tracing log.
 
-To export traces to a self-hosted Phoenix collector, set `CAI_TRACING=true` (default), `CAI_PHOENIX_TRACING=true`, and `PHOENIX_OTLP_ENDPOINT=<grpc-endpoint>` (e.g. `phoenix.tools.svc:4317`). CAI then replaces its OpenAI `BackendSpanExporter` with the Phoenix OpenInference exporter.
+To export traces to a self-hosted Phoenix collector, `pip install '.[phoenix]'` then set `CAI_TRACING=true` (default), `CAI_PHOENIX_TRACING=true`, and `PHOENIX_OTLP_ENDPOINT=<grpc-endpoint>` (e.g. `phoenix.tools.svc:4317`). CAI then replaces its OpenAI `BackendSpanExporter` with the Phoenix OpenInference exporter; a missing endpoint while `CAI_PHOENIX_TRACING` is set raises an error.
 
 ![cai-009-logs](imgs/readme_imgs/cai-009-logs.png)
 

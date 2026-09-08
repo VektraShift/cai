@@ -32,11 +32,11 @@ RUN sed -i 's/-> Dict\[str, List\[str\]\]:/-> dict[str, list[str]]:/g' \
     src/cai/api/app.py \
     && grep -n "dict\[str, list\[str\]\]" src/cai/api/app.py
 
-# Build + install the package (pyproject now includes opentelemetry-* + openinference deps).
+# Build + install the package with the Phoenix tracing extra (opentelemetry + openinference deps).
 RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && pip install --upgrade pip setuptools wheel hatchling \
-    && pip install . \
+    && pip install '.[phoenix]' \
     && find /src/cai -maxdepth 1 -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 
 # ---- Runtime stage ----

@@ -206,10 +206,19 @@ class CAIPhoenixOtelExporter(TracingExporter):
 
 
 def init_phoenix_exporter() -> None:
-    """Register the Phoenix exporter as CAI's tracing processor (replacing the OpenAI backend)."""
+    """Register the Phoenix exporter as CAI's tracing processor (replacing the OpenAI backend).
+
+    Requires ``CAI_PHOENIX_TRACING=1`` (the caller checks this) AND ``PHOENIX_OTLP_ENDPOINT`` set.
+    If the toggle is on but the endpoint is missing, this raises so the misconfiguration is visible
+    instead of silently exporting nothing.
+    """
     endpoint = os.environ.get("PHOENIX_OTLP_ENDPOINT")
     if not endpoint:
-        return
+        raise RuntimeError(
+            "CAI_PHOENIX_TRACING is set but PHOENIX_OTLP_ENDPOINT is not. "
+            "Set PHOENIX_OTLP_ENDPOINT to the OTLP gRPC endpoint of your Phoenix collector "
+            "(e.g. 'phoenix.tools.svc:4317') to export traces."
+        )
     try:
         from .setup import GLOBAL_TRACE_PROVIDER
         from .processors import BatchTraceProcessor
@@ -217,4 +226,4 @@ def init_phoenix_exporter() -> None:
         GLOBAL_TRACE_PROVIDER.set_processors([BatchTraceProcessor(CAIPhoenixOtelExporter(endpoint))])
         print(f"[cai-phoenix-otel] exporter registered -> {endpoint}", file=os.sys.stderr)
     except Exception as exc:
-        print(f"[cai-phoenix-otel] init failed (non-fatal): {exc}", file=os.sys.stderr)
+        raise RuntimeError(f"[cai-phoenix-otel] init failed: {exc}") from exc
