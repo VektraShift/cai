@@ -3,6 +3,7 @@
 These build a fresh in-memory OpenTelemetry SDK per test (own TracerProvider + InMemorySpanExporter)
 so they don't depend on / disturb the session-level SPAN_PROCESSOR_TESTING fixture from conftest.py.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -13,10 +14,13 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from cai.sdk.agents.tracing import phoenix_exporter as m
+from cai.sdk.agents.tracing.phoenix_exporter import OpenInferenceSpanKindValues
 
 
 def _span_data(stype, name=None, input=None, output=None, model=None, usage=None, tools=None):  # noqa: A002
-    return SimpleNamespace(type=stype, name=name, input=input, output=output, model=model, usage=usage, tools=tools)
+    return SimpleNamespace(
+        type=stype, name=name, input=input, output=output, model=model, usage=usage, tools=tools
+    )
 
 
 def _cai_span(stype, span_id, trace_id, parent_id=None, item_name=None):
@@ -36,12 +40,15 @@ def _new_exporter():
     in_mem = InMemorySpanExporter()
     provider.add_span_processor(SimpleSpanProcessor(in_mem))
     tracer = provider.get_tracer(__name__)
-    exp = m.CAIPhoenixOtelExporter(endpoint="phoenix.tools.svc:4317", tracer=tracer, provider=provider)
+    exp = m.CAIPhoenixOtelExporter(
+        endpoint="phoenix.tools.svc:4317", tracer=tracer, provider=provider
+    )
     exp._otlp = None  # never touch a real OTLP backend in tests
     return exp, in_mem
 
 
 # --- pure helpers ---
+
 
 def test_otel_id_deterministic_and_in_range():
     a = m._otel_id("abc", bytes_size=8)
@@ -77,6 +84,7 @@ def test_span_name_prefixes(stype, name, model, expected):
 
 # --- attribute mapping ---
 
+
 def test_agent_span_attributes():
     exp, in_mem = _new_exporter()
     item = _cai_span("agent", "s1", "t1", item_name="ctf")
@@ -88,7 +96,9 @@ def test_agent_span_attributes():
     assert attrs["cai.span.type"] == "agent"
     assert attrs["agent.name"] == "ctf"
     assert attrs["llm.tools"] == "nmap,curl"
-    assert m._span_kind(attrs["openinference.span.kind"]) == m.OpenInferenceSpanKindValues.AGENT.value
+    assert (
+        m._span_kind(attrs["openinference.span.kind"]) == OpenInferenceSpanKindValues.AGENT.value
+    )
 
 
 def test_function_span_attributes():
@@ -103,7 +113,9 @@ def test_function_span_attributes():
     assert attrs["output.value"] == "out"
     assert attrs["input.mime_type"] == "text/plain"
     assert attrs["output.mime_type"] == "text/plain"
-    assert m._span_kind(attrs["openinference.span.kind"]) == m.OpenInferenceSpanKindValues.TOOL.value
+    assert (
+        m._span_kind(attrs["openinference.span.kind"]) == OpenInferenceSpanKindValues.TOOL.value
+    )
 
 
 def test_generation_span_attributes_and_tokens():
@@ -124,7 +136,7 @@ def test_generation_span_attributes_and_tokens():
     assert attrs["output.value"] == "assistant: done"
     assert attrs["llm.token_count.prompt"] == 9
     assert attrs["llm.token_count.completion"] == 3
-    assert m._span_kind(attrs["openinference.span.kind"]) == m.OpenInferenceSpanKindValues.LLM.value
+    assert m._span_kind(attrs["openinference.span.kind"]) == OpenInferenceSpanKindValues.LLM.value
 
 
 def test_unknown_type_no_crash():
@@ -136,6 +148,7 @@ def test_unknown_type_no_crash():
 
 
 # --- parent/child nesting ---
+
 
 def test_same_batch_parent_child_nesting():
     exp, in_mem = _new_exporter()
@@ -162,6 +175,7 @@ def test_cross_batch_parent_child_nesting():
 
 
 # --- opt-in gating / missing endpoint error ---
+
 
 def test_init_phoenix_exporter_raises_without_endpoint(monkeypatch):
     monkeypatch.delenv("PHOENIX_OTLP_ENDPOINT", raising=False)

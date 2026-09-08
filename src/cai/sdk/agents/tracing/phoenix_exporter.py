@@ -2,29 +2,39 @@
 # A `cai.sdk.agents.tracing.TracingExporter` that exports CAI agent/function/generation spans to
 # Arize Phoenix via OTLP (HTTP/protobuf) with OpenInference semantic conventions.
 #
-# Vendored so it is copied into the CAI fork at build time (build-time patch, not a sitecustomize hook).
-# The CAI-package imports are done lazily inside `init_phoenix_exporter()` so this module also imports
-# standalone (which the unit test in `tests/test_cai_phoenix_exporter.py` relies on to inspect the
-# emitted spans via an in-memory OpenTelemetry SDK).
+# Vendored so it is copied into the CAI fork at build time (build-time patch, not a
+# sitecustomize hook).
+# The CAI-package imports are done lazily in `init_phoenix_exporter()` so this module also
+# imports standalone (the unit test uses an in-memory OTel SDK to inspect emitted spans).
 from __future__ import annotations
 
 import hashlib
 import os
-from typing import Any
+import sys
+from typing import TYPE_CHECKING, Any
 
 import opentelemetry.context as otel_ctx
-import opentelemetry.trace as otel_trace
-from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState, set_span_in_context
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    SpanContext,
+    TraceFlags,
+    TraceState,
+    set_span_in_context,
+)
 
-try:  # openinference may not be installed in a bare test/probe environment; unknown types degrade gracefully
+OpenInferenceSpanKindValues: Any
+try:  # openinference may not be installed in a bare test/probe env; degrade gracefully
     from openinference.semconv.trace import OpenInferenceSpanKindValues
 except Exception:  # pragma: no cover
     OpenInferenceSpanKindValues = None
 
-try:  # make the class importable standalone (tests) yet a real TracingExporter inside the fork
+if TYPE_CHECKING:
     from .processor_interface import TracingExporter
-except Exception:  # pragma: no cover
-    TracingExporter = object
+else:
+    try:  # make the class importable standalone (tests) yet a real TracingExporter inside the fork
+        from .processor_interface import TracingExporter
+    except Exception:  # pragma: no cover
+        TracingExporter = object  # type: ignore[misc,assignment]
 
 
 def _otel_id(value: str, *, bytes_size: int) -> int:
@@ -80,8 +90,9 @@ class CAIPhoenixOtelExporter(TracingExporter):
             "PHOENIX_OTLP_ENDPOINT", "phoenix.tools.svc:4317"
         )
         # The tracer MUST come from a real SDK TracerProvider. Using the global tracer returns
-        # NonRecordingSpan (no .resource), which the OTLP encoder rejects -> nothing reaches Phoenix.
+        # A NonRecordingSpan (no .resource) is rejected by the OTLP encoder -> nothing ships.
         # Phoenix serves OTLP over gRPC (port 4317); its OTLP HTTP (4318) is not listening.
+        self._otlp: Any = None
         if tracer is not None:
             self._tracer = tracer
             self._provider = provider
@@ -96,12 +107,12 @@ class CAIPhoenixOtelExporter(TracingExporter):
             self._provider.add_span_processor(BatchSpanProcessor(self._otlp))
             self._tracer = self._provider.get_tracer("cai-phoenix-otel")
 
-    def export(self, items: list[Any]) -> None:  # type: ignore[override]
+    def export(self, items: list[Any]) -> None:
         for item in items:
             try:
                 self._export_one(item)
             except Exception as exc:  # non-fatal, never stall a CAI run
-                print(f"[cai-phoenix-otel] export error (non-fatal): {exc}", file=os.sys.stderr)
+                print(f"[cai-phoenix-otel] export error (non-fatal): {exc}", file=sys.stderr)
         # Spans are picked up by the TracerProvider's processor (OTLP/Batch). Flush so a short
         # API run still ships its spans promptly.
         if getattr(self, "_provider", None) is not None and hasattr(self._provider, "force_flush"):
@@ -164,7 +175,9 @@ class CAIPhoenixOtelExporter(TracingExporter):
             if getattr(data, "name", None):
                 span.set_attribute("agent.name", str(data.name))
             if getattr(data, "tools", None):
-                span.set_attribute("llm.tools", data.tools if isinstance(data.tools, str) else ",".join(data.tools))
+                span.set_attribute(
+                    "llm.tools", data.tools if isinstance(data.tools, str) else ",".join(data.tools)
+                )
         elif stype == "function":
             span.set_attribute("cai.span.type", "function")
             span.set_attribute("openinference.span.kind", _span_kind(kind.TOOL))
@@ -220,10 +233,12 @@ def init_phoenix_exporter() -> None:
             "(e.g. 'phoenix.tools.svc:4317') to export traces."
         )
     try:
-        from .setup import GLOBAL_TRACE_PROVIDER
         from .processors import BatchTraceProcessor
+        from .setup import GLOBAL_TRACE_PROVIDER
 
-        GLOBAL_TRACE_PROVIDER.set_processors([BatchTraceProcessor(CAIPhoenixOtelExporter(endpoint))])
-        print(f"[cai-phoenix-otel] exporter registered -> {endpoint}", file=os.sys.stderr)
+        GLOBAL_TRACE_PROVIDER.set_processors(
+            [BatchTraceProcessor(CAIPhoenixOtelExporter(endpoint))]
+        )
+        print(f"[cai-phoenix-otel] exporter registered -> {endpoint}", file=sys.stderr)
     except Exception as exc:
         raise RuntimeError(f"[cai-phoenix-otel] init failed: {exc}") from exc
