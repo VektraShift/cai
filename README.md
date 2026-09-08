@@ -1293,6 +1293,18 @@ tagged **`v1.1.5-otel`**:
 docker pull vektrashift/cai:v1.1.5-otel   # CHANGE `<vektrashift>` to your registry owner
 ```
 
+#### Build the image (from the CAI repo root, where `Dockerfile` lives)
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -t vektrashift/cai:v1.1.5-otel \
+  -f Dockerfile \
+  --push .
+```
+> `--platform linux/amd64` is required when building on an Apple Silicon (arm64) host so the image
+> targets the cluster's amd64 nodes. `--push` publishes it to your registry. Change `vektrashift`
+> to your Docker Hub/registry owner.
+
 ### 1) Phoenix collector (OTLP + GUI)
 
 Deploy Arize Phoenix in the same namespace so CAI can export spans to it. Phoenix serves the UI on
