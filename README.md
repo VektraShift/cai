@@ -1280,3 +1280,189 @@ CAI benefits from ongoing research collaborations with academic institutions. Re
 [^2]: Kamhoua, C. A., Leslie, N. O., & Weisman, M. J. (2018). Game theoretic modeling of advanced persistent threat in internet of things. Journal of Cyber Security and Information Systems.
 [^3]: Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023, January). React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR).
 [^4]: Deng, G., Liu, Y., Mayoral-Vilches, V., Liu, P., Li, Y., Xu, Y., ... & Rass, S. (2024). {PentestGPT}: Evaluating and harnessing large language models for automated penetration testing. In 33rd USENIX Security Symposium (USENIX Security 24) (pp. 847-864).
+
+
+## :anchor: Kubernetes deployment (Flux + app-template)
+
+CAI is packaged as a HelmRelease on the `bjw-s` [`app-template`](https://github.com/bjw-s/helm-charts)
+chart (4.6.x). The compiled image is published at
+**[`zipeldiablo/cai`](https://hub.docker.com/r/zipeldiablo/cai)** — the Phoenix-tracing build is
+tagged **`v1.1.5-otel`**:
+
+```
+docker pull zipeldiablo/cai:v1.1.5-otel
+```
+
+### 1) Phoenix collector (OTLP + GUI)
+
+Deploy Arize Phoenix in the same namespace so CAI can export spans to it. Phoenix serves the UI on
+`6006` and OTLP over **gRPC on `4317`** (its HTTP `4318` is not listening by default).
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: phoenix
+  namespace: tools
+spec:
+  interval: 5m
+  releaseName: phoenix
+  chart:
+    spec:
+      chart: app-template
+      version: 4.6.2
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  values:
+    fullnameOverride: "phoenix"
+    controllers:
+      phoenix:
+        containers:
+          app:
+            image:
+              repository: arizephoenix/phoenix
+              tag: "0.6.6"                # pin a version; -nonroot variant available
+              pullPolicy: Always
+            env:
+              TZ: "Europe/Paris"
+              PHOENIX_TELEMETRY_ENABLED: "false"   # no Phoenix outbound telemetry
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 3
+                  tcpSocket: { port: 6006 }
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  failureThreshold: 3
+                  tcpSocket: { port: 6006 }
+    service:
+      app:
+        controller: phoenix
+        type: ClusterIP
+        ports:
+          ui:        { port: 6006, targetPort: 6006 }
+          otlp-grpc: { port: 4317, targetPort: 4317 }
+          otlp-http: { port: 4318, targetPort: 4318 }   # advertised; Phoenix binds gRPC 4317
+    ingress:
+      app: { enabled: false }
+    persistence:
+      config:
+        enabled: true
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        storageClass: longhorn
+        globalMounts:
+          - path: /data
+```
+
+### 2) CAI pod (with Phoenix OTel tracing)
+
+The `cai` `HelmRelease` points at the compiled image, sets the model endpoint, and enables trace
+export to the Phoenix Service (`phoenix.tools.svc:4317`, gRPC). The `cai-secret` (SOPS) provides the
+model API key (`ALIAS_API_KEY`).
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cai
+  namespace: tools
+spec:
+  interval: 5m
+  releaseName: cai
+  chart:
+    spec:
+      chart: app-template
+      version: 4.6.2
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  values:
+    # imagePullSecrets:
+    #   - name: regcred        # add if the image registry is private
+    fullnameOverride: "cai"
+    controllers:
+      cai:
+        pod:
+          labels:
+            app.kubernetes.io/name: cai
+            version: green
+        containers:
+          app:
+            image:
+              repository: zipeldiablo/cai
+              tag: v1.1.5-otel          # Phoenix-tracing build (see image link above)
+              pullPolicy: Always
+            resources:
+              requests:
+                memory: 2Gi
+              limits:
+                memory: 3Gi             # agent runs are heavy; avoid OOM (exit 137)
+            command: [cai]
+            args: ["--api", "--api-host", "0.0.0.0", "--api-port", "8080"]
+            env:
+              TZ: "Europe/Paris"
+              CAI_LICENSE_OFF: "1"
+              # Model: CAI's ollama_cloud/ path = a direct AsyncOpenAI client against an
+              # OpenAI-compatible /v1 endpoint. CAI appends /v1 to OLLAMA_API_BASE.
+              CAI_MODEL: ollama_cloud/Llama-3-WhiteRabbitNeo-8B-v2.0.Q8_0
+              OLLAMA_API_BASE: http://192.168.1.157:8080
+              OPENAI_BASE_URL: http://192.168.1.157:8080/v1
+              OPENAI_API_BASE: http://192.168.1.157:8080/v1
+              CAI_FETCH_ALLOW_INTERNAL: "true"
+              # OpenTelemetry -> Phoenix (OTLP gRPC). Replaces the OpenAI BackendSpanExporter,
+              # so no 401-to-OpenAI and traces reach the in-cluster collector.
+              CAI_TRACING: "true"
+              CAI_PHOENIX_TRACING: "true"
+              PHOENIX_OTLP_ENDPOINT: phoenix.tools.svc:4317
+            envFrom:
+              - secretRef: { name: cai-secret }   # SOPS: ALIAS_API_KEY / OPENAI_API_KEY
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+                  failureThreshold: 5
+                  httpGet: { path: /api/v1/health, port: 8080 }
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  failureThreshold: 5
+                  httpGet: { path: /api/v1/health, port: 8080 }
+    service:
+      app:
+        controller: cai
+        type: ClusterIP
+        ports:
+          http: { port: 8080, targetPort: 8080 }
+    ingress:
+      app:
+        enabled: false              # expose via your own IngressRoute (LAN-only)
+    persistence:
+      config:
+        enabled: true
+        type: emptyDir              # CAI config/memory; ephemeral by default
+```
+
+> **Note on the service name:** with `fullnameOverride: phoenix`, the app-template `service.app`
+> renders the Service as **`phoenix`** (not `phoenix-app`), so CAI's `PHOENIX_OTLP_ENDPOINT` is
+> `phoenix.tools.svc:4317`. The `-blue`/`-green` Services come from the canary stack and only carry
+> the UI port (6006).
+
