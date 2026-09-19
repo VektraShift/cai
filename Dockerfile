@@ -7,10 +7,11 @@
 #   # CHANGE `vektrashift` to your Docker Hub owner
 #   docker buildx build --platform linux/amd64 -t vektrashift/cai:v1.1.5-otel \
 #     -f Dockerfile --push .
-# replace the repository's path for your own
-LABEL org.opencontainers.image.source="https://github.com/vektrashift/cai"
 # ---- Build stage ----
 FROM python:3.12-slim AS build
+
+# replace the repository's path for your own
+LABEL org.opencontainers.image.source="https://github.com/vektrashift/cai"
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
