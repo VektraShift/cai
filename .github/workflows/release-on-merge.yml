@@ -27,7 +27,7 @@ jobs:
           body: "Automated release updated from merged Pull Request."
           allowUpdates: true
           # Optional: Replaces the release's git tag with the new merge commit
-          commit: ${{ github.event.pull_request.merge_commit_sha }}
+          commit: ${{ github.sha }}
 
       # 2. Authenticate with GitHub Container Registry
       - name: Log in to GHCR
@@ -46,4 +46,4 @@ jobs:
           # Tags the image explicitly with 1.1.5-otel to overwrite latest build
           tags: |
             ghcr.io/vektrashift/cai:1.1.5-otel
-            ghcr.io/vektrashift/cai:${{ github.event.pull_request.merge_commit_sha }}
+            ghcr.io/vektrashift/cai:${{ github.sha }}
