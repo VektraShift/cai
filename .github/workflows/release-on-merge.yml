@@ -24,11 +24,17 @@ jobs:
         with:
           tag: 1.1.5-otel # Uses the target branch name as the tag (e.g., 'develop')
           name: "Release: 1.1.5-otel"
-          body: "Automated release updated from merged Pull Request."
+          # Use the pipe (|) to create a multi-line markdown body
+          body: |
+            Automated release updated from merged Pull Request.
+            
+            ### 🐳 Docker Image
+            You can pull this image directly from the GitHub Container Registry:
+            ```bash
+            docker pull ghcr.io/vektrashift/cai:1.1.5-otel
+            ```
           allowUpdates: true
-          # Optional: Replaces the release's git tag with the new merge commit
           commit: ${{ github.sha }}
-
       # 2. Authenticate with GitHub Container Registry
       - name: Log in to GHCR
         uses: docker/login-action@v3
