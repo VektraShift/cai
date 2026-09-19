@@ -1,15 +1,12 @@
 name: Release and Publish Image
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
       - cai-1.1.5-release # Target branch for the merge
 
 jobs:
   build-and-push:
-    # This ensures the action only runs if the PR was actually merged
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     
     # Explicitly grant permissions to the automatic GITHUB_TOKEN
