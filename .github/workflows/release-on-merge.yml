@@ -1,0 +1,52 @@
+name: Release and Publish Image
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - cai-1.1.5-release # Target branch for the merge
+
+jobs:
+  build-and-push:
+    # This ensures the action only runs if the PR was actually merged
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    
+    # Explicitly grant permissions to the automatic GITHUB_TOKEN
+    permissions:
+      contents: write   # Required to create the Git tag and GitHub Release
+      packages: write   # Required to push the image to GHCR
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Update the existing GitHub Release in the repository UI
+      - name: Update GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: 1.1.5-otel # Uses the target branch name as the tag (e.g., 'develop')
+          name: "Release: 1.1.5-otel"
+          body: "Automated release updated from merged Pull Request."
+          allowUpdates: true
+          # Optional: Replaces the release's git tag with the new merge commit
+          commit: ${{ github.event.pull_request.merge_commit_sha }}
+
+      # 2. Authenticate with GitHub Container Registry
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 3. Build and push the new Docker image
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Tags the image explicitly with 1.1.5-otel to overwrite latest build
+          tags: |
+            ghcr.io/vektrashift/cai:1.1.5-otel
+            ghcr.io/vektrashift/cai:${{ github.event.pull_request.merge_commit_sha }}
